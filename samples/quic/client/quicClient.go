@@ -13,11 +13,11 @@ import (
 )
 
 const (
-	serverIP          = "3.84.69.4"
+	serverIP          = "127.0.0.1"
 	serverPort        = "4510"
 	serverType        = "udp4"
 	bufferSize        = 2048
-	appLayerProto     = "jarkom-quic-sample-minjar"
+	appLayerProto     = "jarkom-quic-sample-zacky"
 	sslKeyLogFileName = "ssl-key.log"
 )
 
