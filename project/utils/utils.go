@@ -144,4 +144,3 @@ func GenerateTLSSelfSignedCertificates() []tls.Certificate {
 	}
 	return []tls.Certificate{tlsCert}
 }
-
