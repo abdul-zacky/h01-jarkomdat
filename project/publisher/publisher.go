@@ -5,112 +5,123 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log"
-	"net"
-	"os"
+	"time"
 
 	"github.com/quic-go/quic-go"
 	"jarkom.cs.ui.ac.id/h01/project/utils"
 )
 
-const (
-	serverIP          = "3.81.118.89"
-	serverPort        = "4510"
-	serverType        = "udp4"
-	bufferSize        = 2048
-	appLayerProto     = "lrt-jabodebek-2306214510"
-	sslKeyLogFileName = "ssl-key.log"
-)
-
-func main() {
-	sslKeyLogFile, err := os.Create(sslKeyLogFileName)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer sslKeyLogFile.Close()
-
-	fmt.Printf("QUIC Publisher (Node Kendali Stasiun) - PIDS System\n")
-
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{appLayerProto},
-		KeyLogWriter:       sslKeyLogFile,
-	}
-
-	connection, err := quic.DialAddr(context.Background(), net.JoinHostPort(serverIP, serverPort), tlsConfig, &quic.Config{})
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer connection.CloseWithError(0x0, "No Error")
-
-	fmt.Printf("[quic] Connected to %s\n", connection.RemoteAddr())
-
-	// Create Packet A: Train 42 to Harjamukti arriving
-	destination := "Harjamukti"
-	packetA := utils.LRTPIDSPacket{
-		LRTPIDSPacketFixed: utils.LRTPIDSPacketFixed{
-			TransactionId:     1,
-			IsAck:             false,
-			IsNewTrain:        false,
-			IsUpdateTrain:     false,
-			IsDeleteTrain:     false,
-			IsTrainArriving:   true,
-			IsTrainDeparting:  false,
-			TrainNumber:       42,
-			DestinationLength: uint8(len(destination)),
-		},
-		Destination: destination,
-	}
-
-	// Create Packet B: Train 42 to Harjamukti departing
-	packetB := utils.LRTPIDSPacket{
-		LRTPIDSPacketFixed: utils.LRTPIDSPacketFixed{
-			TransactionId:     2,
-			IsAck:             false,
-			IsNewTrain:        false,
-			IsUpdateTrain:     false,
-			IsDeleteTrain:     false,
-			IsTrainArriving:   false,
-			IsTrainDeparting:  true,
-			TrainNumber:       42,
-			DestinationLength: uint8(len(destination)),
-		},
-		Destination: destination,
-	}
-
-	// Send Packet A and receive ACK
-	sendPacketAndReceiveACK(connection, packetA, "A")
-
-	// Send Packet B and receive ACK
-	sendPacketAndReceiveACK(connection, packetB, "B")
-
-	fmt.Printf("[quic] Closing connection\n")
+type PIDSPublisher struct {
+	connection quic.Connection
+	address    string
 }
 
-func sendPacketAndReceiveACK(connection quic.Connection, packet utils.LRTPIDSPacket, packetName string) {
-	// Encode and send packet
-	encodedData := utils.Encoder(packet)
-
-	stream, err := connection.OpenStreamSync(context.Background())
-	if err != nil {
-		log.Fatalln(err)
+func NewPIDSPublisher(address string) (*PIDSPublisher, error) {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+		NextProtos:         []string{"lrt-jabodebek-2006142424"},
+		ServerName:         "localhost",
 	}
 
-	fmt.Printf("[quic] Sending Packet %s (Train %d to %s)\n", packetName, packet.TrainNumber, packet.Destination)
-	_, err = stream.Write(encodedData)
+	conn, err := quic.DialAddr(context.Background(), address, tlsConfig, nil)
 	if err != nil {
-		log.Fatalln(err)
+		return nil, fmt.Errorf("failed to connect to server: %v", err)
 	}
 
-	// Receive ACK
-	receiveBuffer := make([]byte, bufferSize)
-	receiveLength, err := stream.Read(receiveBuffer)
+	return &PIDSPublisher{
+		connection: conn,
+		address:    address,
+	}, nil
+}
+
+func (p *PIDSPublisher) SendPacket(packet utils.LRTPIDSPacket) error {
+	stream, err := p.connection.OpenStreamSync(context.Background())
 	if err != nil {
-		log.Fatalln(err)
+		return fmt.Errorf("failed to open stream: %v", err)
+	}
+	defer stream.Close()
+
+	data, err := utils.Encode(packet)
+	if err != nil {
+		return fmt.Errorf("failed to encode packet: %v", err)
 	}
 
-	// Decode ACK
-	ackPacket := utils.Decoder(receiveBuffer[:receiveLength])
-	fmt.Printf("[quic] Received ACK for Packet %s (Transaction ID: %d)\n", packetName, ackPacket.TransactionId)
+	_, err = stream.Write(data)
+	if err != nil {
+		return fmt.Errorf("failed to write data: %v", err)
+	}
 
-	stream.Close()
+	buffer := make([]byte, 1024)
+	n, err := stream.Read(buffer)
+	if err != nil {
+		return fmt.Errorf("failed to read ACK: %v", err)
+	}
+
+	ackPacket, err := utils.Decode(buffer[:n])
+	if err != nil {
+		return fmt.Errorf("failed to decode ACK: %v", err)
+	}
+
+	if ackPacket.IsAck == 1 && ackPacket.TransactionID == packet.TransactionID {
+		fmt.Printf("ACK received for Transaction ID: %d\n", packet.TransactionID)
+		return nil
+	}
+
+	return fmt.Errorf("invalid ACK received")
+}
+
+func (p *PIDSPublisher) Close() error {
+	return p.connection.CloseWithError(0, "publisher closed")
+}
+
+func main() {
+	publisher, err := NewPIDSPublisher("localhost:8080")
+	if err != nil {
+		log.Fatalf("Failed to create publisher: %v", err)
+	}
+	defer publisher.Close()
+
+	fmt.Println("PIDS Publisher connected to server")
+
+	packetA := utils.LRTPIDSPacket{
+		TransactionID:    42,
+		IsAck:            0,
+		IsNewTrain:       0,
+		IsUpdateTrain:    0,
+		IsDeleteTrain:    0,
+		IsTrainArriving:  1,
+		IsTrainDeparting: 0,
+		TrainNumber:      42,
+		DestinationLength: 0,
+		Destination:      "Harjamukti",
+	}
+
+	fmt.Println("Sending Packet A (Train Arriving)...")
+	err = publisher.SendPacket(packetA)
+	if err != nil {
+		log.Printf("Failed to send Packet A: %v", err)
+	}
+
+	time.Sleep(2 * time.Second)
+
+	packetB := utils.LRTPIDSPacket{
+		TransactionID:    42,
+		IsAck:            0,
+		IsNewTrain:       0,
+		IsUpdateTrain:    0,
+		IsDeleteTrain:    0,
+		IsTrainArriving:  0,
+		IsTrainDeparting: 1,
+		TrainNumber:      42,
+		DestinationLength: 0,
+		Destination:      "Harjamukti",
+	}
+
+	fmt.Println("Sending Packet B (Train Departing)...")
+	err = publisher.SendPacket(packetB)
+	if err != nil {
+		log.Printf("Failed to send Packet B: %v", err)
+	}
+
+	fmt.Println("All packets sent successfully!")
 }
