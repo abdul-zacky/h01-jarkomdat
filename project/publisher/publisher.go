@@ -19,8 +19,8 @@ type PIDSPublisher struct {
 func NewPIDSPublisher(address string) (*PIDSPublisher, error) {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
-		NextProtos:         []string{"lrt-jabodebek-2006142424"},
-		ServerName:         "localhost",
+		NextProtos:         []string{"lrt-jabodebek-2306214510"},
+		ServerName:         "3.81.118.89",
 	}
 
 	conn, err := quic.DialAddr(context.Background(), address, tlsConfig, nil)
@@ -75,7 +75,7 @@ func (p *PIDSPublisher) Close() error {
 }
 
 func main() {
-	publisher, err := NewPIDSPublisher("localhost:8080")
+	publisher, err := NewPIDSPublisher("3.81.118.89:4510")
 	if err != nil {
 		log.Fatalf("Failed to create publisher: %v", err)
 	}

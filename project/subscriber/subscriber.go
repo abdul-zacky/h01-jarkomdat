@@ -134,12 +134,12 @@ func generateTLSConfig() *tls.Config {
 	cert, _ := tls.LoadX509KeyPair("server.crt", "server.key")
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
-		NextProtos:   []string{"lrt-jabodebek-2006142424"},
+		NextProtos:   []string{"lrt-jabodebek-2306214510"},
 	}
 }
 
 func main() {
-	subscriber, err := NewPIDSSubscriber(":8080")
+	subscriber, err := NewPIDSSubscriber(":4510")
 	if err != nil {
 		log.Fatalf("Failed to create subscriber: %v", err)
 	}
